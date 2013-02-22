@@ -227,7 +227,7 @@ public class XCodeBuilder extends Builder {
         String ipaOutputDirectory = envs.expand(this.ipaOutputDirectory);
         // End expanding all string variables in parameters  
 
-        final boolean useAgvtool = !cfBundleVersionValue.isEmpty() && !cfBundleShortVersionStringValue.isEmpty();
+        final boolean useAgvtool = this.provideApplicationVersion;
         if (useAgvtool && !new FilePath(projectRoot.getChannel(), getGlobalConfiguration().getAgvtoolPath()).exists()) {
             listener.fatalError(Messages.XCodeBuilder_avgtoolNotFound(getGlobalConfiguration().getAgvtoolPath()));
             return false;
