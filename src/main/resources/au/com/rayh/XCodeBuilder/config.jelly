@@ -64,7 +64,7 @@
 		    
             <f:entry>
                 <f:optionalBlock inline="true" checked="${instance.buildIpa == true}" name="buildIpa" title="${%Pack application and build .ipa?}" description="Checking this option will create a .ipa for each .app found in the build directory.">
-                    <f:entry title="${%.ipa filename pattern}" field="ipaName" description="A pattern for the ipa file name. You may use $${VERSION} and $${BUILD_DATE} (yyyy.MM.dd) in this string">
+                    <f:entry title="${%.ipa filename pattern}" field="ipaName" description="A pattern for the ipa file name. You may use $${BASE_NAME}, $${VERSION}, $${SHORT_VERSION}, $${BUILD_NUMBER}, $${CONFIGURATION} and $${BUILD_DATE} (yyyy.MM.dd) in this string">
                         <f:textbox />
                     </f:entry>
                     

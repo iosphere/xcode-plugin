@@ -619,7 +619,9 @@ public class XCodeBuilder extends Builder {
                 		"BASE_NAME", app.getBaseName().replaceAll(" ", "_"),
                 		"VERSION", version,
                 		"SHORT_VERSION", shortVersion,
-                		"BUILD_DATE", lastModified
+                		"BUILD_DATE", lastModified,
+                        "BUILD_NUMBER", String.format("%d", build.getNumber()),
+                        "CONFIGURATION", configuration
                 	);
                     baseName = customVars.expand(ipaName);
                 }
