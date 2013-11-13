@@ -206,10 +206,6 @@ public class XCodeBuilder extends Builder {
             listener.fatalError(Messages.XCodeBuilder_xcodebuildNotFound(getGlobalConfiguration().getXcodebuildPath()));
             return false;
         }
-        if (!new FilePath(projectRoot.getChannel(), getGlobalConfiguration().getAgvtoolPath()).exists()) {
-            listener.fatalError(Messages.XCodeBuilder_avgtoolNotFound(getGlobalConfiguration().getAgvtoolPath()));
-            return false;
-        }
 
         // Start expanding all string variables in parameters
         // NOTE: we currently use variable shadowing to avoid having to rewrite all code (and break pull requests), this will be cleaned up at later stage.
@@ -230,6 +226,12 @@ public class XCodeBuilder extends Builder {
         String ipaName = envs.expand(this.ipaName);
         String ipaOutputDirectory = envs.expand(this.ipaOutputDirectory);
         // End expanding all string variables in parameters  
+
+        final boolean useAgvtool = !cfBundleVersionValue.isEmpty() && !cfBundleShortVersionStringValue.isEmpty();
+        if (useAgvtool && !new FilePath(projectRoot.getChannel(), getGlobalConfiguration().getAgvtoolPath()).exists()) {
+            listener.fatalError(Messages.XCodeBuilder_avgtoolNotFound(getGlobalConfiguration().getAgvtoolPath()));
+            return false;
+        }
 
         // Set the working directory
         if (!StringUtils.isEmpty(xcodeProjectPath)) {
@@ -289,80 +291,81 @@ public class XCodeBuilder extends Builder {
             return false; // We fail the build if XCode isn't deployed
         }
 
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        if (useAgvtool) {
+            // Try to read CFBundleShortVersionString from project
+            listener.getLogger().println(Messages.XCodeBuilder_fetchingCFBundleShortVersionString());
+            String cfBundleShortVersionString = "";
+            returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "mvers", "-terse1").stdout(output).pwd(projectRoot).join();
+            // only use this version number if we found it
+            if (returnCode == 0)
+                cfBundleShortVersionString = output.toString().trim();
+            if (StringUtils.isEmpty(cfBundleShortVersionString))
+                listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringNotFound());
+            else
+                listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringFound(cfBundleShortVersionString));
+            listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringValue(cfBundleShortVersionString));
 
-        // Try to read CFBundleShortVersionString from project
-        listener.getLogger().println(Messages.XCodeBuilder_fetchingCFBundleShortVersionString());
-        String cfBundleShortVersionString = "";
-        returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "mvers", "-terse1").stdout(output).pwd(projectRoot).join();
-        // only use this version number if we found it
-        if (returnCode == 0)
-            cfBundleShortVersionString = output.toString().trim();
-        if (StringUtils.isEmpty(cfBundleShortVersionString))
-            listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringNotFound());
-        else
-            listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringFound(cfBundleShortVersionString));
-        listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringValue(cfBundleShortVersionString));
+            output.reset();
 
-        output.reset();
+            // Try to read CFBundleVersion from project
+            listener.getLogger().println(Messages.XCodeBuilder_fetchingCFBundleVersion());
+            String cfBundleVersion = "";
+            returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "vers", "-terse").stdout(output).pwd(projectRoot).join();
+            // only use this version number if we found it
+            if (returnCode == 0)
+                cfBundleVersion = output.toString().trim();
+            if (StringUtils.isEmpty(cfBundleVersion))
+                listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionNotFound());
+            else
+                listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionFound(cfBundleVersion));
+            listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionValue(cfBundleVersion));
 
-        // Try to read CFBundleVersion from project
-        listener.getLogger().println(Messages.XCodeBuilder_fetchingCFBundleVersion());
-        String cfBundleVersion = "";
-        returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "vers", "-terse").stdout(output).pwd(projectRoot).join();
-        // only use this version number if we found it
-        if (returnCode == 0)
-            cfBundleVersion = output.toString().trim();
-        if (StringUtils.isEmpty(cfBundleVersion))
-            listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionNotFound());
-        else
-            listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionFound(cfBundleVersion));
-        listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionValue(cfBundleVersion));
-        
-        String buildDescription = cfBundleShortVersionString + " (" + cfBundleVersion + ")";
-        XCodeAction a = new XCodeAction(buildDescription);
-        build.addAction(a);
+            String buildDescription = cfBundleShortVersionString + " (" + cfBundleVersion + ")";
+            XCodeAction a = new XCodeAction(buildDescription);
+            build.addAction(a);
 
-        // Update the Marketing version (CFBundleShortVersionString)
-        if (!StringUtils.isEmpty(cfBundleShortVersionStringValue)) {
-            try {
-                // If not empty we use the Token Expansion to replace it
-                // https://wiki.jenkins-ci.org/display/JENKINS/Token+Macro+Plugin
-                cfBundleShortVersionString = TokenMacro.expandAll(build, listener, cfBundleShortVersionStringValue);
-                listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringUpdate(cfBundleShortVersionString));
-                returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "new-marketing-version", cfBundleShortVersionString).stdout(listener).pwd(projectRoot).join();
-                if (returnCode > 0) {
-                    listener.fatalError(Messages.XCodeBuilder_CFBundleShortVersionStringUpdateError(cfBundleShortVersionString));
+            // Update the Marketing version (CFBundleShortVersionString)
+            if (!StringUtils.isEmpty(cfBundleShortVersionStringValue)) {
+                try {
+                    // If not empty we use the Token Expansion to replace it
+                    // https://wiki.jenkins-ci.org/display/JENKINS/Token+Macro+Plugin
+                    cfBundleShortVersionString = TokenMacro.expandAll(build, listener, cfBundleShortVersionStringValue);
+                    listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringUpdate(cfBundleShortVersionString));
+                    returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "new-marketing-version", cfBundleShortVersionString).stdout(listener).pwd(projectRoot).join();
+                    if (returnCode > 0) {
+                        listener.fatalError(Messages.XCodeBuilder_CFBundleShortVersionStringUpdateError(cfBundleShortVersionString));
+                        return false;
+                    }
+                } catch (MacroEvaluationException e) {
+                    listener.fatalError(Messages.XCodeBuilder_CFBundleShortVersionStringMacroError(e.getMessage()));
+                    // Fails the build
                     return false;
                 }
-            } catch (MacroEvaluationException e) {
-                listener.fatalError(Messages.XCodeBuilder_CFBundleShortVersionStringMacroError(e.getMessage()));
-                // Fails the build
-                return false;
             }
-        }
 
-        // Update the Technical version (CFBundleVersion)
-        if (!StringUtils.isEmpty(cfBundleVersionValue)) {
-            try {
-                // If not empty we use the Token Expansion to replace it
-                // https://wiki.jenkins-ci.org/display/JENKINS/Token+Macro+Plugin
-                cfBundleVersion = TokenMacro.expandAll(build, listener, cfBundleVersionValue);
-                listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionUpdate(cfBundleVersion));
-                returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "new-version", "-all", cfBundleVersion).stdout(listener).pwd(projectRoot).join();
-                if (returnCode > 0) {
-                    listener.fatalError(Messages.XCodeBuilder_CFBundleVersionUpdateError(cfBundleVersion));
+            // Update the Technical version (CFBundleVersion)
+            if (!StringUtils.isEmpty(cfBundleVersionValue)) {
+                try {
+                    // If not empty we use the Token Expansion to replace it
+                    // https://wiki.jenkins-ci.org/display/JENKINS/Token+Macro+Plugin
+                    cfBundleVersion = TokenMacro.expandAll(build, listener, cfBundleVersionValue);
+                    listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionUpdate(cfBundleVersion));
+                    returnCode = launcher.launch().envs(envs).cmds(getGlobalConfiguration().getAgvtoolPath(), "new-version", "-all", cfBundleVersion).stdout(listener).pwd(projectRoot).join();
+                    if (returnCode > 0) {
+                        listener.fatalError(Messages.XCodeBuilder_CFBundleVersionUpdateError(cfBundleVersion));
+                        return false;
+                    }
+                } catch (MacroEvaluationException e) {
+                    listener.fatalError(Messages.XCodeBuilder_CFBundleVersionMacroError(e.getMessage()));
+                    // Fails the build
                     return false;
                 }
-            } catch (MacroEvaluationException e) {
-                listener.fatalError(Messages.XCodeBuilder_CFBundleVersionMacroError(e.getMessage()));
-                // Fails the build
-                return false;
             }
-        }
 
-        listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringUsed(cfBundleShortVersionString));
-        listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionUsed(cfBundleVersion));
+            listener.getLogger().println(Messages.XCodeBuilder_CFBundleShortVersionStringUsed(cfBundleShortVersionString));
+            listener.getLogger().println(Messages.XCodeBuilder_CFBundleVersionUsed(cfBundleVersion));
+        }
 
         // Clean build directories
         if (cleanBeforeBuild) {
