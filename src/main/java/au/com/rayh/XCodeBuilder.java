@@ -36,6 +36,7 @@ import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.Builder;
 import hudson.util.CopyOnWriteList;
 import hudson.util.QuotedStringTokenizer;
+import hudson.model.EnvironmentContributingAction;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.tokenmacro.MacroEvaluationException;
 import org.jenkinsci.plugins.tokenmacro.TokenMacro;
@@ -50,6 +51,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.HashMap; 
 
 /**
  * @author Ray Hilton
@@ -662,6 +664,50 @@ public class XCodeBuilder extends Builder {
                 }
 
                 payload.deleteRecursive();
+
+                // export some parts of the apps info.plist as enviroment variable, only works with a single app...
+                String infoPlistPath = app.absolutize().child("Info.plist").getRemote();
+                final String finalBundleVersion = version;
+                final String finalIPALocation = ipaLocation.absolutize().getRemote();
+                final String dsymPath = ipaOutputPath.child(baseName + "-dSYM.zip").absolutize().getRemote();
+
+                String currentPWD = buildDirectory.absolutize().getRemote();
+
+                String[] infoPlistKeys = {"CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundleShortVersionString", "CFBundleVersion"};
+                final HashMap<String, String> finalEnvVars = new HashMap<String, String>();
+
+                for (String key: infoPlistKeys ) {
+                    String infoPlistValue = getInfoPlistEntry(launcher, envs, currentPWD, infoPlistPath, key);
+                    if (infoPlistValue == null) {
+                        listener.getLogger().println("Failed to get key from Info.plist: " + key);
+                        continue;
+                    }
+                    finalEnvVars.put("XCODE_" + key.toUpperCase(), infoPlistValue);
+                }
+
+                finalEnvVars.put("XCODE_IPAPATH", finalIPALocation);
+                finalEnvVars.put("XCODE_DSYMPATH", dsymPath);
+
+                build.addAction(new EnvironmentContributingAction() {
+                    public void buildEnvVars(AbstractBuild<?, ?> build, EnvVars envVars) {
+                        if (envVars != null) {
+                            envVars.putAll(finalEnvVars);
+                        }
+                    }
+
+                    public String getUrlName() {
+                        return null;
+                    }
+
+                    public String getIconFileName() {
+                        return null;
+                    }
+
+                    public String getDisplayName() {
+                        return null;
+                    }
+                });
+
             }
         }
 
@@ -694,6 +740,27 @@ public class XCodeBuilder extends Builder {
         return result;
     }
     
+    static String getInfoPlistEntry(Launcher launcher, EnvVars envs, String currentPWD, String infoPlistPath, String key) {
+        if (currentPWD == null || infoPlistPath == null || key == null) {
+            return new String();
+        }
+
+        String retString = null;
+
+        try {
+            String plistBuddyCommandFormat = String.format("print :%s", key);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            int ret = launcher.launch().envs(envs).cmds("/usr/libexec/PlistBuddy", "-c", plistBuddyCommandFormat, infoPlistPath).stdout(out).pwd(currentPWD).join();
+            retString = out.toString().trim();
+        }
+
+        catch(Exception ex) {
+        }
+
+
+        return retString;        
+    }
+
     public GlobalConfigurationImpl getGlobalConfiguration() {
     	return getDescriptor().getGlobalConfiguration();
     }
